@@ -1,3 +1,4 @@
+package org.doube.bonej;
 
 
 /** Neck Shaft Angle
@@ -56,15 +57,6 @@ import java.awt.event.*;
 
 import Jama.*;
 
-import org.doube.bonej.ResultInserter;
-/*
- * TODO incorporate curvature
- * curvature = maximum deflection of the slice centroid from the 
- * SVD long axis as a ratio to bone length.  Deflection should
- * be resolved to M-L and Cr-Ca planes; M-L plane contains SVD
- * long axis and centre of femoral head; Cr-Ca plane is perpendicular to
- * M-L plane
- */
 
 public class Neck_Shaft_Angle implements PlugInFilter, MouseListener{
     ImagePlus imp;
