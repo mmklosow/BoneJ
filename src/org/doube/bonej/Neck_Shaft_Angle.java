@@ -68,7 +68,6 @@ public class Neck_Shaft_Angle implements PlugInFilter, MouseListener{
     public int startSlice = 1, endSlice;
     public String title, units, valueUnit;
     public Calibration cal;
-    //	public ResultsTable rt;
 
     public int setup(String arg, ImagePlus imp){
 	if (imp == null || imp.getNSlices() < 2){
@@ -114,7 +113,8 @@ public class Neck_Shaft_Angle implements PlugInFilter, MouseListener{
 	if (roiMan == null && imp != null){
 	    IJ.run("ROI Manager...");
 	    IJ.error("Please populate ROI Manager with point ROIs\n" +
-	    "placed on the boundary of the femoral head");
+	    "placed on the boundary of the femoral head\n" +
+	    "then restart the plugin.");
 	    return;
 	} else {
 	    headCentre = fitSphere(this.imp, roiMan);
@@ -463,15 +463,10 @@ public class Neck_Shaft_Angle implements PlugInFilter, MouseListener{
 
 	double neckShaftAngle = Math.acos(cosA1);
 	double neckShaftSkew = Math.acos(cosA2);
-/*	rt = ResultsTable.getResultsTable();
-	rt.incrementCounter();
-	rt.addLabel("Label", imp.getTitle());
-	rt.addValue("Angle (rad)", neckShaftAngle);  //angle between shaft and neck in plane of head and shaft
-	rt.addValue("Skew (rad)", neckShaftSkew);     //angle bewteen neck and plane of head and shaft
-	rt.show("Results");*/
 	ResultInserter ri = new ResultInserter();
 	ri.setResultInRow(this.imp, "Angle (rad)", neckShaftAngle);
 	ri.setResultInRow(this.imp, "Skew (rad)", neckShaftSkew);
+	ri.updateTable();
     }
 
     public void mousePressed(MouseEvent e) {
