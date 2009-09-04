@@ -48,7 +48,6 @@ import ij.process.ImageProcessor;
 import ij.plugin.filter.PlugInFilter;
 import ij.plugin.frame.RoiManager;
 import ij.measure.Calibration;
-//import ij.measure.ResultsTable;
 import ij.gui.*;
 
 import java.awt.List;
