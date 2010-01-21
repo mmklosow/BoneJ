@@ -19,6 +19,8 @@ package org.doube.bonej;
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import java.util.ArrayList;
+
 import org.doube.util.ImageCheck;
 
 import ij.*;
@@ -66,17 +68,15 @@ public class Purify implements PlugIn {
 			return;
 		}
 		GenericDialog gd = new GenericDialog("Setup");
-		gd.addNumericField("Chunk Size", 4, 0, 4, "slices");
 		gd.addCheckbox("Performance Log", false);
 		gd.addCheckbox("Make_copy", true);
 		gd.showDialog();
-		int slicesPerChunk = (int) Math.floor(gd.getNextNumber());
 		if (gd.wasCanceled()) {
 			return;
 		}
 		boolean showPerformance = gd.getNextBoolean();
 		boolean doCopy = gd.getNextBoolean();
-		Object[] result = purify(imp, slicesPerChunk, showPerformance);
+		Object[] result = purify(imp, showPerformance);
 		if (null != result) {
 			ImagePlus purified = (ImagePlus) result[1];
 
@@ -101,24 +101,23 @@ public class Purify implements PlugIn {
 	 * @param showPerformance
 	 * @return
 	 */
-	public Object[] purify(ImagePlus imp, int slicesPerChunk,
-			boolean showPerformance) {
+	public Object[] purify(ImagePlus imp, boolean showPerformance) {
 
 		long startTime = System.currentTimeMillis();
 		ParticleCounter pc = new ParticleCounter();
 
 		final int fg = ParticleCounter.FORE;
-		Object[] foregroundParticles = pc.getParticles(imp,
-				slicesPerChunk, 0, Double.POSITIVE_INFINITY, fg);
+		Object[] foregroundParticles = pc.getParticles(imp, 0,
+				Double.POSITIVE_INFINITY, fg);
 		byte[][] workArray = (byte[][]) foregroundParticles[0];
 		int[][] particleLabels = (int[][]) foregroundParticles[1];
-		//index 0 is background particle's size...
+		// index 0 is background particle's size...
 		long[] particleSizes = pc.getParticleSizes(particleLabels);
 		removeSmallParticles(workArray, particleLabels, particleSizes, fg);
-		
+
 		final int bg = ParticleCounter.BACK;
-		Object[] backgroundParticles = pc.getParticles(imp, workArray,
-				slicesPerChunk, 0, Double.POSITIVE_INFINITY, bg);
+		Object[] backgroundParticles = pc.getParticles(imp, workArray, 0,
+				Double.POSITIVE_INFINITY, bg);
 		particleLabels = (int[][]) backgroundParticles[1];
 		particleSizes = pc.getParticleSizes(particleLabels);
 		touchEdges(imp, workArray, particleLabels, particleSizes, bg);
@@ -129,7 +128,7 @@ public class Purify implements PlugIn {
 				/ (double) 1000;
 
 		if (showPerformance)
-			showResults(duration, imp, slicesPerChunk);
+			showResults(duration, imp);
 
 		IJ.showStatus("Image Purified");
 
@@ -168,21 +167,24 @@ public class Purify implements PlugIn {
 		// find the label associated with the biggest
 		// particle in phase
 		long maxVoxCount = 0;
-		int bigP = 0;
-		final int nPartSizes = particleSizes.length;
-		for (int i = 0; i < nPartSizes; i++) {
+		int bP = 0;
+		final int nParts = particleSizes.length;
+		for (int i = 0; i < nParts; i++) {
 			if (particleSizes[i] > maxVoxCount) {
 				maxVoxCount = particleSizes[i];
-				bigP = i;
+				bP = i;
 			}
 		}
-		final int biggestParticle = bigP;
+		final int b = bP;
+
+		ParticleCounter pc = new ParticleCounter();
+		ArrayList<ArrayList<int[]>> particleLists = pc.getParticleLists(particleLabels,
+				nParts, w, h, d);
+
 		// check each face of the stack for pixels that are touching edges and
 		// replace that particle's label in particleLabels with
 		// the label of the biggest particle
 		int x, y, z;
-
-		ParticleCounter pc = new ParticleCounter();
 		// up
 		z = 0;
 		for (y = 0; y < h; y++) {
@@ -192,9 +194,9 @@ public class Purify implements PlugIn {
 			for (x = 0; x < w; x++) {
 				final int offset = rowOffset + x;
 				if (workArray[z][offset] == phase
-						&& particleLabels[z][offset] != biggestParticle) {
-					pc.replaceLabel(particleLabels, particleLabels[z][offset],
-							biggestParticle, 0, d);
+						&& particleLabels[z][offset] != b) {
+					final int p = particleLabels[z][offset];
+					pc.joinBlobs(b, p, particleLabels, particleLists, w);
 				}
 			}
 		}
@@ -208,9 +210,9 @@ public class Purify implements PlugIn {
 			for (x = 0; x < w; x++) {
 				final int offset = rowOffset + x;
 				if (workArray[z][offset] == phase
-						&& particleLabels[z][offset] != biggestParticle) {
-					pc.replaceLabel(particleLabels, particleLabels[z][offset],
-							biggestParticle, 0, d);
+						&& particleLabels[z][offset] != b) {
+					final int p = particleLabels[z][offset];
+					pc.joinBlobs(b, p, particleLabels, particleLists, w);
 				}
 			}
 		}
@@ -223,9 +225,9 @@ public class Purify implements PlugIn {
 			for (y = 0; y < h; y++) {
 				final int offset = y * w;
 				if (workArray[z][offset] == phase
-						&& particleLabels[z][offset] != biggestParticle) {
-					pc.replaceLabel(particleLabels, particleLabels[z][offset],
-							biggestParticle, 0, d);
+						&& particleLabels[z][offset] != b) {
+					final int p = particleLabels[z][offset];
+					pc.joinBlobs(b, p, particleLabels, particleLists, w);
 				}
 			}
 		}
@@ -238,9 +240,9 @@ public class Purify implements PlugIn {
 			for (y = 0; y < h; y++) {
 				final int offset = y * w + x;
 				if (workArray[z][offset] == phase
-						&& particleLabels[z][offset] != biggestParticle) {
-					pc.replaceLabel(particleLabels, particleLabels[z][offset],
-							biggestParticle, 0, d);
+						&& particleLabels[z][offset] != b) {
+					final int p = particleLabels[z][offset];
+					pc.joinBlobs(b, p, particleLabels, particleLists, w);
 				}
 			}
 		}
@@ -254,9 +256,9 @@ public class Purify implements PlugIn {
 			for (x = 0; x < w; x++) {
 				final int offset = rowOffset + x;
 				if (workArray[z][offset] == phase
-						&& particleLabels[z][offset] != biggestParticle) {
-					pc.replaceLabel(particleLabels, particleLabels[z][offset],
-							biggestParticle, 0, d);
+						&& particleLabels[z][offset] != b) {
+					final int p = particleLabels[z][offset];
+					pc.joinBlobs(b, p, particleLabels, particleLists, w);
 				}
 			}
 		}
@@ -269,9 +271,9 @@ public class Purify implements PlugIn {
 			for (x = 0; x < w; x++) {
 				final int offset = x;
 				if (workArray[z][offset] == phase
-						&& particleLabels[z][offset] != biggestParticle) {
-					pc.replaceLabel(particleLabels, particleLabels[z][offset],
-							biggestParticle, 0, d);
+						&& particleLabels[z][offset] != b) {
+					final int p = particleLabels[z][offset];
+					pc.joinBlobs(b, p, particleLabels, particleLists, w);
 				}
 			}
 		}
@@ -340,19 +342,10 @@ public class Purify implements PlugIn {
 	 * @param chunkRanges
 	 * @param duration
 	 */
-	private void showResults(double duration, ImagePlus imp, int slicesPerChunk) {
-		ParticleCounter pc = new ParticleCounter();
-		final int nChunks = pc.getNChunks(imp, slicesPerChunk);
-		int[][] chunkRanges = pc.getChunkRanges(imp, nChunks, slicesPerChunk);
+	private void showResults(double duration, ImagePlus imp) {
 		ResultsTable rt = ResultsTable.getResultsTable();
 		rt.incrementCounter();
 		rt.addLabel(imp.getTitle());
-		rt.addValue("Threads", Runtime.getRuntime().availableProcessors());
-		rt.addValue("Slices", imp.getImageStackSize());
-		rt.addValue("Chunks", nChunks);
-		rt.addValue("Chunk size", slicesPerChunk);
-		rt.addValue("Last chunk size", chunkRanges[1][nChunks - 1]
-				- chunkRanges[0][nChunks - 1]);
 		rt.addValue("Duration (s)", duration);
 		rt.show("Results");
 		return;

@@ -267,10 +267,10 @@ public class ThresholdMinConn implements PlugIn {
 			Purify p = new Purify();
 			Erode e = new Erode();
 			Dilate d = new Dilate();
-			Object[] result = p.purify(imp3, 4, false);
+			Object[] result = p.purify(imp3, false);
 			replaceImage(imp3, (ImagePlus) result[1]);
 			e.erode(imp3, 255).show();
-			result = p.purify(imp3, 4, false);
+			result = p.purify(imp3, false);
 			replaceImage(imp3, (ImagePlus) result[1]);
 			d.dilate(imp3, 255).show();
 

@@ -56,35 +56,11 @@ import ij3d.Image3DUniverse;
  * </p>
  * <p>
  * This plugin is based on Object_Counter3D by Fabrice P Cordelires and Jonathan
- * Jackson, but with significant speed increases through reduction of recursion
- * and multi-threading. Thanks to Robert Barbour for the suggestion to 'chunk'
- * the stack. Chunking works as follows:
+ * Jackson, but with significant speed increases through elimination of recursion.
  * </p>
- * <ol>
- * <li>Perform initial labelling on the whole stack in a single thread</li>
- * <li>for <i>n</i> discrete, contiguous chunks within the labelling array,
- * connectStructures()
- * <ol type="a">
- * <li>connectStructures() can run in a separate thread for each chunk</li>
- * <li>chunks are approximately equal-sized sets of slices</li>
- * </ol>
- * <li>stitchChunks() for the pixels on the first slice of each chunk, except
- * for the first chunk, restricting replaceLabels() to the current and all
- * previous chunks.
- * <ol type="a">
- * <li>stitchChunks() iterates through the slice being stitched in a single
- * thread</li>
- * </ol>
- * </li>
- * 
- * </ol>
- * <p>
- * The performance improvement should be in the region of a factor of <i>n</i>
- * if run linearly, and if multithreaded over <i>c</i> processors, speed
- * increase should be in the region of <i>n</i> * <i>c</i>, minus overhead.
- * </p>
- * 
- * @author Michael Doube, Jonathan Jackson, Fabrice Cordelires
+ * @author Michael Doube
+ * @author Jonathan Jackson
+ * @author Fabrice Cordelires
  * @see <p>
  *      <a href="http://rsbweb.nih.gov/ij/plugins/track/objects.html">3D Object
  *      Counter</a>
@@ -104,7 +80,7 @@ public class ParticleCounter implements PlugIn {
 
 	private String sPhase = "";
 
-	private String chunkString = "";
+	// private String chunkString = "";
 
 	public void run(String arg) {
 		ImagePlus imp = IJ.getImage();
@@ -142,8 +118,8 @@ public class ParticleCounter implements PlugIn {
 		gd.addCheckbox("Show_ellipsoids", true);
 		gd.addCheckbox("Show_stack (3D)", true);
 		gd.addNumericField("Volume_resampling", 2, 0);
-		gd.addMessage("Slice size for particle counting");
-		gd.addNumericField("Slices per chunk", 2, 0);
+		// gd.addMessage("Slice size for particle counting");
+		// gd.addNumericField("Slices per chunk", 2, 0);
 		gd.showDialog();
 		if (gd.wasCanceled()) {
 			return;
@@ -167,11 +143,10 @@ public class ParticleCounter implements PlugIn {
 		final boolean doEllipsoidImage = gd.getNextBoolean();
 		final boolean do3DOriginal = gd.getNextBoolean();
 		final int origResampling = (int) Math.floor(gd.getNextNumber());
-		final int slicesPerChunk = (int) Math.floor(gd.getNextNumber());
+		// final int slicesPerChunk = (int) Math.floor(gd.getNextNumber());
 
 		// get the particles and do the analysis
-		Object[] result = getParticles(imp, slicesPerChunk, minVol, maxVol,
-				FORE);
+		Object[] result = getParticles(imp, minVol, maxVol, FORE);
 		int[][] particleLabels = (int[][]) result[1];
 		long[] particleSizes = getParticleSizes(particleLabels);
 		final int nParticles = particleSizes.length;
@@ -514,7 +489,7 @@ public class ParticleCounter implements PlugIn {
 	}
 
 	private int getNCavities(ImagePlus imp) {
-		Object[] result = getParticles(imp, 4, BACK);
+		Object[] result = getParticles(imp, BACK);
 		long[] particleSizes = (long[]) result[2];
 		final int nParticles = particleSizes.length;
 		final int nCavities = nParticles - 2; // 1 particle is the background
@@ -1122,27 +1097,23 @@ public class ParticleCounter implements PlugIn {
 	 * @return Object[] {byte[][], int[][]} containing a binary workArray and
 	 *         particle labels.
 	 */
-	public Object[] getParticles(ImagePlus imp, int slicesPerChunk,
-			double minVol, double maxVol, int phase) {
+	public Object[] getParticles(ImagePlus imp, double minVol, double maxVol,
+			int phase) {
 		byte[][] workArray = makeWorkArray(imp);
-		return getParticles(imp, workArray, slicesPerChunk, minVol, maxVol,
-				phase);
+		return getParticles(imp, workArray, minVol, maxVol, phase);
 	}
 
-	public Object[] getParticles(ImagePlus imp, int slicesPerChunk, int phase) {
+	public Object[] getParticles(ImagePlus imp, int phase) {
 		byte[][] workArray = makeWorkArray(imp);
 		double minVol = 0;
 		double maxVol = Double.POSITIVE_INFINITY;
-		return getParticles(imp, workArray, slicesPerChunk, minVol, maxVol,
-				phase);
+		return getParticles(imp, workArray, minVol, maxVol, phase);
 	}
 
-	public Object[] getParticles(ImagePlus imp, byte[][] workArray,
-			int slicesPerChunk, int phase) {
+	public Object[] getParticles(ImagePlus imp, byte[][] workArray, int phase) {
 		double minVol = 0;
 		double maxVol = Double.POSITIVE_INFINITY;
-		return getParticles(imp, workArray, slicesPerChunk, minVol, maxVol,
-				phase);
+		return getParticles(imp, workArray, minVol, maxVol, phase);
 	}
 
 	/**
@@ -1165,7 +1136,7 @@ public class ParticleCounter implements PlugIn {
 	 *         particle sizes
 	 */
 	public Object[] getParticles(ImagePlus imp, byte[][] workArray,
-			int slicesPerChunk, double minVol, double maxVol, int phase) {
+			double minVol, double maxVol, int phase) {
 		if (phase == FORE) {
 			this.sPhase = "foreground";
 		} else if (phase == BACK) {
@@ -1173,39 +1144,8 @@ public class ParticleCounter implements PlugIn {
 		} else {
 			throw new IllegalArgumentException();
 		}
-		if (slicesPerChunk < 1) {
-			throw new IllegalArgumentException();
-		}
-		// Set up the chunks
-		final int nChunks = getNChunks(imp, slicesPerChunk);
-		final int[][] chunkRanges = getChunkRanges(imp, nChunks, slicesPerChunk);
-		final int[][] stitchRanges = getStitchRanges(imp, nChunks,
-				slicesPerChunk);
-
 		int[][] particleLabels = firstIDAttribution(imp, workArray, phase);
-
-		// connect particles within chunks
-		final int nThreads = Runtime.getRuntime().availableProcessors();
-		ConnectStructuresThread[] cptf = new ConnectStructuresThread[nThreads];
-		for (int thread = 0; thread < nThreads; thread++) {
-			cptf[thread] = new ConnectStructuresThread(thread, nThreads, imp,
-					workArray, particleLabels, phase, nChunks, chunkRanges);
-			cptf[thread].start();
-		}
-		try {
-			for (int thread = 0; thread < nThreads; thread++) {
-				cptf[thread].join();
-			}
-		} catch (InterruptedException ie) {
-			IJ.error("A thread was interrupted.");
-		}
-
-		// connect particles between chunks
-		if (nChunks > 1) {
-			chunkString = ": stitching...";
-			connectStructures(imp, workArray, particleLabels, phase,
-					stitchRanges);
-		}
+		joinStructures(imp, particleLabels, phase);
 		filterParticles(imp, workArray, particleLabels, minVol, maxVol, phase);
 		minimiseLabels(particleLabels);
 		long[] particleSizes = getParticleSizes(particleLabels);
@@ -1298,28 +1238,6 @@ public class ParticleCounter implements PlugIn {
 	}
 
 	/**
-	 * Gets number of chunks needed to divide a stack into evenly-sized sets of
-	 * slices.
-	 * 
-	 * @param imp
-	 *            input image
-	 * @param slicesPerChunk
-	 *            number of slices per chunk
-	 * @return number of chunks
-	 */
-	public int getNChunks(ImagePlus imp, int slicesPerChunk) {
-		final int d = imp.getImageStackSize();
-		int nChunks = (int) Math.floor((double) d / (double) slicesPerChunk);
-
-		int remainder = d % slicesPerChunk;
-
-		if (remainder > 0) {
-			nChunks++;
-		}
-		return nChunks;
-	}
-
-	/**
 	 * Go through all pixels and assign initial particle label
 	 * 
 	 * @param workArray
@@ -1353,7 +1271,7 @@ public class ParticleCounter implements PlugIn {
 							for (int vZ = z - 1; vZ <= z + 1; vZ++) {
 								for (int vY = y - 1; vY <= y + 1; vY++) {
 									for (int vX = x - 1; vX <= x + 1; vX++) {
-										if (withinBounds(vX, vY, vZ, w, h, 0, d)) {
+										if (withinBounds(vX, vY, vZ, w, h, d)) {
 											final int offset = getOffset(vX,
 													vY, w);
 											if (workArray[vZ][offset] == phase) {
@@ -1416,7 +1334,7 @@ public class ParticleCounter implements PlugIn {
 									nZ = z + 1;
 									break;
 								}
-								if (withinBounds(nX, nY, nZ, w, h, 0, d)) {
+								if (withinBounds(nX, nY, nZ, w, h, d)) {
 									final int offset = getOffset(nX, nY, w);
 									if (workArray[nZ][offset] == phase) {
 										final int tagv = particleLabels[nZ][offset];
@@ -1444,221 +1362,151 @@ public class ParticleCounter implements PlugIn {
 	}
 
 	/**
-	 * Connect structures = minimisation of IDs
+	 * Joins semi-labelled particles using a non-recursive algorithm
 	 * 
-	 * @param workArray
+	 * @param imp
 	 * @param particleLabels
-	 * @param phase
-	 *            foreground or background
-	 * @param scanRanges
-	 *            int[][] listing ranges to run connectStructures on
-	 * @return particleLabels with all particles connected
 	 */
-	private void connectStructures(ImagePlus imp, final byte[][] workArray,
-			int[][] particleLabels, final int phase, final int[][] scanRanges) {
-		IJ.showStatus("Connecting " + sPhase + " structures" + chunkString);
+	private void joinStructures(ImagePlus imp, int[][] particleLabels, int phase) {
 		final int w = imp.getWidth();
 		final int h = imp.getHeight();
 		final int d = imp.getImageStackSize();
-		for (int c = 0; c < scanRanges[0].length; c++) {
-			final int sR0 = scanRanges[0][c];
-			final int sR1 = scanRanges[1][c];
-			final int sR2 = scanRanges[2][c];
-			final int sR3 = scanRanges[3][c];
-			if (phase == FORE) {
-				for (int z = sR0; z < sR1; z++) {
-					for (int y = 0; y < h; y++) {
-						final int rowIndex = y * w;
-						for (int x = 0; x < w; x++) {
-							final int arrayIndex = rowIndex + x;
-							if (workArray[z][arrayIndex] == phase
-									&& particleLabels[z][arrayIndex] > 1) {
-								int minTag = particleLabels[z][arrayIndex];
-								// Find the minimum particleLabel in the
-								// neighbours' pixels
-								for (int vZ = z - 1; vZ <= z + 1; vZ++) {
-									for (int vY = y - 1; vY <= y + 1; vY++) {
-										for (int vX = x - 1; vX <= x + 1; vX++) {
-											if (withinBounds(vX, vY, vZ, w, h,
-													sR2, sR3)) {
-												final int offset = getOffset(
-														vX, vY, w);
-												if (workArray[vZ][offset] == phase) {
-													final int tagv = particleLabels[vZ][offset];
-													if (tagv != 0
-															&& tagv < minTag) {
-														minTag = tagv;
-													}
-												}
-											}
-										}
-									}
-								}
-								// Replacing particleLabel by the minimum
-								// particleLabel found
-								for (int vZ = z - 1; vZ <= z + 1; vZ++) {
-									for (int vY = y - 1; vY <= y + 1; vY++) {
-										for (int vX = x - 1; vX <= x + 1; vX++) {
-											if (withinBounds(vX, vY, vZ, w, h,
-													sR2, sR3)) {
-												final int offset = getOffset(
-														vX, vY, w);
-												if (workArray[vZ][offset] == phase) {
-													final int tagv = particleLabels[vZ][offset];
-													if (tagv != 0
-															&& tagv != minTag) {
-														replaceLabel(
-																particleLabels,
-																tagv, minTag,
-																sR2, sR3);
-													}
-												}
-											}
-										}
-									}
-								}
-							}
-						}
-					}
-					IJ.showStatus("Connecting foreground structures"
-							+ chunkString);
-					IJ.showProgress(z, d);
+		long[] particleSizes = getParticleSizes(particleLabels);
+		final int nBlobs = particleSizes.length;
+		ArrayList<ArrayList<int[]>> particleLists = getParticleLists(particleLabels, nBlobs, w, h, d);
+		switch (phase) {
+		case FORE: {
+			for (int b = 1; b < nBlobs; b++) {
+				IJ.showStatus("Joining substructures...");
+				IJ.showProgress(b, nBlobs);
+				if (particleLists.get(b).isEmpty()) {
+					continue;
 				}
-			} else if (phase == BACK) {
-				for (int z = sR0; z < sR1; z++) {
-					for (int y = 0; y < h; y++) {
-						final int rowIndex = y * w;
-						for (int x = 0; x < w; x++) {
-							final int arrayIndex = rowIndex + x;
-							if (workArray[z][arrayIndex] == phase) {
-								int minTag = particleLabels[z][arrayIndex];
-								// Find the minimum particleLabel in the
-								// neighbours' pixels
-								int nX = x, nY = y, nZ = z;
-								for (int n = 0; n < 7; n++) {
-									switch (n) {
-									case 0:
-										break;
-									case 1:
-										nX = x - 1;
-										break;
-									case 2:
-										nX = x + 1;
-										break;
-									case 3:
-										nY = y - 1;
-										nX = x;
-										break;
-									case 4:
-										nY = y + 1;
-										break;
-									case 5:
-										nZ = z - 1;
-										nY = y;
-										break;
-									case 6:
-										nZ = z + 1;
-										break;
-									}
-									if (withinBounds(nX, nY, nZ, w, h, sR2, sR3)) {
-										final int offset = getOffset(nX, nY, w);
-										if (workArray[nZ][offset] == phase) {
-											final int tagv = particleLabels[nZ][offset];
-											if (tagv != 0 && tagv < minTag) {
-												minTag = tagv;
-											}
-										}
-									}
-								}
-								// Replacing particleLabel by the minimum
-								// particleLabel found
-								for (int n = 0; n < 7; n++) {
-									switch (n) {
-									case 0:
-										nZ = z;
-										break; // last switch block left nZ = z
-									// + 1;
-									case 1:
-										nX = x - 1;
-										break;
-									case 2:
-										nX = x + 1;
-										break;
-									case 3:
-										nY = y - 1;
-										nX = x;
-										break;
-									case 4:
-										nY = y + 1;
-										break;
-									case 5:
-										nZ = z - 1;
-										nY = y;
-										break;
-									case 6:
-										nZ = z + 1;
-										break;
-									}
-									if (withinBounds(nX, nY, nZ, w, h, sR2, sR3)) {
-										final int offset = getOffset(nX, nY, w);
-										if (workArray[nZ][offset] == phase) {
-											final int tagv = particleLabels[nZ][offset];
-											if (tagv != 0 && tagv != minTag) {
-												replaceLabel(particleLabels,
-														tagv, minTag, sR2, sR3);
-											}
-										}
-									}
+
+				for (int l = 0; l < particleLists.get(b).size(); l++) {
+					final int[] voxel = particleLists.get(b).get(l);
+					final int x = voxel[0];
+					final int y = voxel[1];
+					final int z = voxel[2];
+					// find any neighbours with bigger labels
+					for (int zN = z - 1; zN <= z + 1; zN++) {
+						for (int yN = y - 1; yN <= y + 1; yN++) {
+							final int index = yN * w;
+							for (int xN = x - 1; xN <= x + 1; xN++) {
+								if (!withinBounds(xN, yN, zN, w, h, d))
+									continue;
+								final int iN = index + xN;
+								int p = particleLabels[zN][iN];
+								if (p > b) {
+									joinBlobs(b, p, particleLabels,
+											particleLists, w);
 								}
 							}
 						}
 					}
-					IJ.showStatus("Connecting background structures"
-							+ chunkString);
-					IJ.showProgress(z, d + 1);
 				}
 			}
+		}
+		case BACK: {
+			for (int b = 1; b < nBlobs; b++) {
+				IJ.showStatus("Joining substructures...");
+				IJ.showProgress(b, nBlobs);
+				if (particleLists.get(b).isEmpty()) {
+					continue;
+				}
+				for (int l = 0; l < particleLists.get(b).size(); l++) {
+					final int[] voxel = particleLists.get(b).get(l);
+					final int x = voxel[0];
+					final int y = voxel[1];
+					final int z = voxel[2];
+					// find any neighbours with bigger labels
+					int xN = x, yN = y, zN = z;
+					for (int n = 1; n < 7; n++) {
+						switch (n) {
+						case 1:
+							xN = x - 1;
+							break;
+						case 2:
+							xN = x + 1;
+							break;
+						case 3:
+							yN = y - 1;
+							xN = x;
+							break;
+						case 4:
+							yN = y + 1;
+							break;
+						case 5:
+							zN = z - 1;
+							yN = y;
+							break;
+						case 6:
+							zN = z + 1;
+							break;
+						}
+						if (!withinBounds(xN, yN, zN, w, h, d))
+							continue;
+						final int iN = yN * w + xN;
+						int p = particleLabels[zN][iN];
+						if (p > b) {
+							joinBlobs(b, p, particleLabels, particleLists, w);
+						}
+					}
+				}
+			}
+		}
 		}
 		return;
 	}
-
-	class ConnectStructuresThread extends Thread {
-		final ImagePlus imp;
-
-		final int thread, nThreads, nChunks, phase;
-
-		final byte[][] workArray;
-
-		final int[][] particleLabels;
-
-		final int[][] chunkRanges;
-
-		public ConnectStructuresThread(int thread, int nThreads, ImagePlus imp,
-				byte[][] workArray, int[][] particleLabels, final int phase,
-				int nChunks, int[][] chunkRanges) {
-			this.imp = imp;
-			this.thread = thread;
-			this.nThreads = nThreads;
-			this.workArray = workArray;
-			this.particleLabels = particleLabels;
-			this.phase = phase;
-			this.nChunks = nChunks;
-			this.chunkRanges = chunkRanges;
+	
+//	@SuppressWarnings("unchecked")
+	public ArrayList<ArrayList<int[]>> getParticleLists(int[][] particleLabels,
+			int nBlobs, int w, int h, int d) {
+//		ArrayList<int[]> particleLists[] = new ArrayList[nBlobs];
+		ArrayList<ArrayList<int[]>> pL = new ArrayList<ArrayList<int[]>>(nBlobs);
+		long[] particleSizes = getParticleSizes(particleLabels);
+		for (int b = 0; b < nBlobs; b++) {
+			ArrayList<int[]> a = new ArrayList<int[]>((int) particleSizes[b]);
+			pL.add(b, a);
 		}
-
-		public void run() {
-			for (int k = this.thread; k < this.nChunks; k += this.nThreads) {
-				// assign singleChunkRange for chunk k from chunkRanges
-				int[][] singleChunkRange = new int[4][1];
-				for (int i = 0; i < 4; i++) {
-					singleChunkRange[i][0] = this.chunkRanges[i][k];
+		// add all the particle coordinates to the appropriate list
+		for (int z = 0; z < d; z++) {
+			IJ.showStatus("Listing substructures...");
+			IJ.showProgress(z, d);
+			for (int y = 0; y < h; y++) {
+				final int i = y * w;
+				for (int x = 0; x < w; x++) {
+					final int p = particleLabels[z][i + x];
+					if (p > 0) { // ignore background
+						final int[] voxel = { x, y, z };
+						pL.get(p).add(voxel);
+					}
 				}
-				chunkString = ": chunk " + (k + 1) + "/" + nChunks;
-				connectStructures(this.imp, this.workArray,
-						this.particleLabels, this.phase, singleChunkRange);
 			}
 		}
-	}// ConnectStructuresThread
+		return pL;
+	}
+
+	/**
+	 * Join particle p to particle b, relabelling p with b.
+	 * 
+	 * @param b 
+	 * @param p
+	 * @param particleLabels array of particle labels
+	 * @param particleLists list of particle voxel coordinates
+	 * @param w stack width
+	 */
+	public void joinBlobs(int b, int p, int[][] particleLabels,
+			ArrayList<ArrayList<int[]>> particleLists, int w) {
+		ListIterator<int[]> iterB = particleLists.get(p).listIterator();
+		while (iterB.hasNext()) {
+			int[] voxelB = iterB.next();
+			particleLists.get(b).add(voxelB);
+			final int iB = voxelB[1] * w + voxelB[0];
+			particleLabels[voxelB[2]][iB] = b;
+		}
+		particleLists.get(p).clear();
+	}
 
 	/**
 	 * Create a work array
@@ -1680,119 +1528,25 @@ public class ParticleCounter implements PlugIn {
 	}
 
 	/**
-	 * Get a 2 d array that defines the z-slices to scan within while connecting
-	 * particles within chunkified stacks.
+	 * Check to see if the current coordinate is within the bounds of the stack
 	 * 
-	 * @param nC
-	 *            number of chunks
-	 * @return scanRanges int[][] containing 4 limits: int[0][] - start of outer
-	 *         for; int[1][] end of outer for; int[3][] start of inner for;
-	 *         int[4] end of inner 4. Second dimension is chunk number.
+	 * @param x
+	 *            x coordinate
+	 * @param y
+	 *            y coordinate
+	 * @param z
+	 *            z coordinate
+	 * @param w
+	 *            stack width
+	 * @param h
+	 *            stack height
+	 * @param d
+	 *            stack depth
+	 * @return true if the voxel is within the stack bounds
+	 * 
 	 */
-	public int[][] getChunkRanges(ImagePlus imp, int nC, int slicesPerChunk) {
-		final int nSlices = imp.getImageStackSize();
-		int[][] scanRanges = new int[4][nC];
-		scanRanges[0][0] = 0; // the first chunk starts at the first (zeroth)
-		// slice
-		scanRanges[2][0] = 0; // and that is what replaceLabel() will work on
-		// first
-
-		if (nC == 1) {
-			scanRanges[1][0] = nSlices;
-			scanRanges[3][0] = nSlices;
-		} else if (nC > 1) {
-			scanRanges[1][0] = slicesPerChunk;
-			scanRanges[3][0] = slicesPerChunk;
-
-			for (int c = 1; c < nC; c++) {
-				for (int i = 0; i < 4; i++) {
-					scanRanges[i][c] = scanRanges[i][c - 1] + slicesPerChunk;
-				}
-			}
-			// reduce the last chunk to nSlices
-			scanRanges[1][nC - 1] = nSlices;
-			scanRanges[3][nC - 1] = nSlices;
-		}
-		return scanRanges;
-	}
-
-	/**
-	 * Return scan ranges for stitching. The first 2 values for each chunk are
-	 * the first slice of the next chunk and the last 2 values are the range
-	 * through which to replaceLabels()
-	 * 
-	 * Running replace labels over incrementally increasing volumes as chunks
-	 * are added is OK (for 1st interface connect chunks 0 & 1, for 2nd connect
-	 * chunks 0, 1, 2, etc.)
-	 * 
-	 * @param nC
-	 *            number of chunks
-	 * @return scanRanges list of scan limits for connectStructures() to stitch
-	 *         chunks back together
-	 */
-	private int[][] getStitchRanges(ImagePlus imp, int nC, int slicesPerChunk) {
-		final int nSlices = imp.getImageStackSize();
-		if (nC < 2) {
-			return null;
-		}
-		int[][] scanRanges = new int[4][3 * (nC - 1)]; // there are nC - 1
-		// interfaces
-
-		for (int c = 0; c < nC - 1; c++) {
-			scanRanges[0][c] = (c + 1) * slicesPerChunk;
-			scanRanges[1][c] = (c + 1) * slicesPerChunk + 1;
-			scanRanges[2][c] = c * slicesPerChunk; // forward and reverse
-			// algorithm
-			// scanRanges[2][c] = 0; //cumulative algorithm - reliable but O²
-			// hard
-			scanRanges[3][c] = (c + 2) * slicesPerChunk;
-		}
-		// stitch back
-		for (int c = nC - 1; c < 2 * (nC - 1); c++) {
-			scanRanges[0][c] = (2 * nC - c - 2) * slicesPerChunk - 1;
-			scanRanges[1][c] = (2 * nC - c - 2) * slicesPerChunk;
-			scanRanges[2][c] = (2 * nC - c - 3) * slicesPerChunk;
-			scanRanges[3][c] = (2 * nC - c - 1) * slicesPerChunk;
-		}
-		// stitch forwards (paranoid third pass)
-		for (int c = 2 * (nC - 1); c < 3 * (nC - 1); c++) {
-			scanRanges[0][c] = (-2 * nC + c + 3) * slicesPerChunk;
-			scanRanges[1][c] = (-2 * nC + c + 3) * slicesPerChunk + 1;
-			scanRanges[2][c] = (-2 * nC + c + 2) * slicesPerChunk;
-			scanRanges[3][c] = (-2 * nC + c + 4) * slicesPerChunk;
-		}
-		for (int i = 0; i < scanRanges.length; i++) {
-			for (int c = 0; c < scanRanges[i].length; c++) {
-				if (scanRanges[i][c] > nSlices) {
-					scanRanges[i][c] = nSlices;
-				}
-			}
-		}
-		scanRanges[3][nC - 2] = nSlices;
-		return scanRanges;
-	}
-
-	/**
-	 * Check to see if the pixel at (m,n,o) is within the bounds of the current
-	 * stack
-	 * 
-	 * @param m
-	 *            x co-ordinate
-	 * @param n
-	 *            y co-ordinate
-	 * @param o
-	 *            z co-ordinate
-	 * @param startZ
-	 *            first Z coordinate to use
-	 * 
-	 * @param endZ
-	 *            last Z coordinate to use
-	 * 
-	 * @return True if the pixel is within the bounds of the current stack
-	 */
-	private boolean withinBounds(int m, int n, int o, int w, int h, int startZ,
-			int endZ) {
-		return (m >= 0 && m < w && n >= 0 && n < h && o >= startZ && o < endZ);
+	private boolean withinBounds(int x, int y, int z, int w, int h, int d) {
+		return (x >= 0 && x < w && y >= 0 && y < h && z >= 0 && z < d);
 	}
 
 	/**
