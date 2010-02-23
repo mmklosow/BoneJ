@@ -1465,7 +1465,9 @@ public class ParticleCounter implements PlugIn {
 //		ArrayList<int[]> particleLists[] = new ArrayList[nBlobs];
 		ArrayList<ArrayList<short[]>> pL = new ArrayList<ArrayList<short[]>>(nBlobs);
 		long[] particleSizes = getParticleSizes(particleLabels);
-		for (int b = 0; b < nBlobs; b++) {
+		ArrayList<short[]> background = new ArrayList<short[]>(0);
+		pL.add(0, background);
+		for (int b = 1; b < nBlobs; b++) {
 			ArrayList<short[]> a = new ArrayList<short[]>((int) particleSizes[b]);
 			pL.add(b, a);
 		}
