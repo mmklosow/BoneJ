@@ -56,8 +56,10 @@ import ij3d.Image3DUniverse;
  * </p>
  * <p>
  * This plugin is based on Object_Counter3D by Fabrice P Cordelires and Jonathan
- * Jackson, but with significant speed increases through elimination of recursion.
+ * Jackson, but with significant speed increases through elimination of
+ * recursion.
  * </p>
+ * 
  * @author Michael Doube
  * @author Jonathan Jackson
  * @author Fabrice Cordelires
@@ -91,6 +93,12 @@ public class ParticleCounter implements PlugIn {
 		ImageCheck ic = new ImageCheck();
 		if (!ic.isBinary(imp)) {
 			IJ.error("Binary image required");
+			return;
+		}
+		if (!checkStackSize(imp)) {
+			IJ.error("At least one stack dimension is too big.\n"
+					+ "Maximum permitted edge length is " + (Short.MAX_VALUE - 1)
+					+ " pixels.");
 			return;
 		}
 		Calibration cal = imp.getCalibration();
@@ -308,6 +316,15 @@ public class ParticleCounter implements PlugIn {
 		IJ.showProgress(1.0);
 		IJ.showStatus("Particle Analysis Complete");
 		return;
+	}
+
+	private boolean checkStackSize(ImagePlus imp) {
+		final short max = Short.MAX_VALUE;
+		if (imp.getWidth() < max && imp.getHeight() < max
+				&& imp.getImageStackSize() < max) {
+			return true;
+		} else
+			return false;
 	}
 
 	private void displayEllipsoids(Object[][] ellipsoids) {
@@ -1373,7 +1390,8 @@ public class ParticleCounter implements PlugIn {
 		final int d = imp.getImageStackSize();
 		long[] particleSizes = getParticleSizes(particleLabels);
 		final int nBlobs = particleSizes.length;
-		ArrayList<ArrayList<short[]>> particleLists = getParticleLists(particleLabels, nBlobs, w, h, d);
+		ArrayList<ArrayList<short[]>> particleLists = getParticleLists(
+				particleLabels, nBlobs, w, h, d);
 		switch (phase) {
 		case FORE: {
 			for (int b = 1; b < nBlobs; b++) {
@@ -1458,17 +1476,19 @@ public class ParticleCounter implements PlugIn {
 		}
 		return;
 	}
-	
-//	@SuppressWarnings("unchecked")
-	public ArrayList<ArrayList<short[]>> getParticleLists(int[][] particleLabels,
-			int nBlobs, int w, int h, int d) {
-//		ArrayList<int[]> particleLists[] = new ArrayList[nBlobs];
-		ArrayList<ArrayList<short[]>> pL = new ArrayList<ArrayList<short[]>>(nBlobs);
+
+	// @SuppressWarnings("unchecked")
+	public ArrayList<ArrayList<short[]>> getParticleLists(
+			int[][] particleLabels, int nBlobs, int w, int h, int d) {
+		// ArrayList<int[]> particleLists[] = new ArrayList[nBlobs];
+		ArrayList<ArrayList<short[]>> pL = new ArrayList<ArrayList<short[]>>(
+				nBlobs);
 		long[] particleSizes = getParticleSizes(particleLabels);
 		ArrayList<short[]> background = new ArrayList<short[]>(0);
 		pL.add(0, background);
 		for (int b = 1; b < nBlobs; b++) {
-			ArrayList<short[]> a = new ArrayList<short[]>((int) particleSizes[b]);
+			ArrayList<short[]> a = new ArrayList<short[]>(
+					(int) particleSizes[b]);
 			pL.add(b, a);
 		}
 		// add all the particle coordinates to the appropriate list
@@ -1492,11 +1512,14 @@ public class ParticleCounter implements PlugIn {
 	/**
 	 * Join particle p to particle b, relabelling p with b.
 	 * 
-	 * @param b 
+	 * @param b
 	 * @param p
-	 * @param particleLabels array of particle labels
-	 * @param particleLists list of particle voxel coordinates
-	 * @param w stack width
+	 * @param particleLabels
+	 *            array of particle labels
+	 * @param particleLists
+	 *            list of particle voxel coordinates
+	 * @param w
+	 *            stack width
 	 */
 	public void joinBlobs(int b, int p, int[][] particleLabels,
 			ArrayList<ArrayList<short[]>> particleLists, int w) {
