@@ -1244,7 +1244,7 @@ public class ParticleCounter implements PlugIn {
 	 *            byte[] array containing pixel values
 	 * @param phase
 	 *            FORE or BACK for foreground of background respectively
-	 * @return particleLabels int[] array containing label associating every
+	 * @return particleLabels int[][] array containing label associating every
 	 *         pixel with a particle
 	 */
 	private int[][] firstIDAttribution(ImagePlus imp, final byte[][] workArray,
@@ -1373,7 +1373,7 @@ public class ParticleCounter implements PlugIn {
 		final int d = imp.getImageStackSize();
 		long[] particleSizes = getParticleSizes(particleLabels);
 		final int nBlobs = particleSizes.length;
-		ArrayList<ArrayList<int[]>> particleLists = getParticleLists(particleLabels, nBlobs, w, h, d);
+		ArrayList<ArrayList<short[]>> particleLists = getParticleLists(particleLabels, nBlobs, w, h, d);
 		switch (phase) {
 		case FORE: {
 			for (int b = 1; b < nBlobs; b++) {
@@ -1384,7 +1384,7 @@ public class ParticleCounter implements PlugIn {
 				}
 
 				for (int l = 0; l < particleLists.get(b).size(); l++) {
-					final int[] voxel = particleLists.get(b).get(l);
+					final short[] voxel = particleLists.get(b).get(l);
 					final int x = voxel[0];
 					final int y = voxel[1];
 					final int z = voxel[2];
@@ -1415,7 +1415,7 @@ public class ParticleCounter implements PlugIn {
 					continue;
 				}
 				for (int l = 0; l < particleLists.get(b).size(); l++) {
-					final int[] voxel = particleLists.get(b).get(l);
+					final short[] voxel = particleLists.get(b).get(l);
 					final int x = voxel[0];
 					final int y = voxel[1];
 					final int z = voxel[2];
@@ -1460,25 +1460,25 @@ public class ParticleCounter implements PlugIn {
 	}
 	
 //	@SuppressWarnings("unchecked")
-	public ArrayList<ArrayList<int[]>> getParticleLists(int[][] particleLabels,
+	public ArrayList<ArrayList<short[]>> getParticleLists(int[][] particleLabels,
 			int nBlobs, int w, int h, int d) {
 //		ArrayList<int[]> particleLists[] = new ArrayList[nBlobs];
-		ArrayList<ArrayList<int[]>> pL = new ArrayList<ArrayList<int[]>>(nBlobs);
+		ArrayList<ArrayList<short[]>> pL = new ArrayList<ArrayList<short[]>>(nBlobs);
 		long[] particleSizes = getParticleSizes(particleLabels);
 		for (int b = 0; b < nBlobs; b++) {
-			ArrayList<int[]> a = new ArrayList<int[]>((int) particleSizes[b]);
+			ArrayList<short[]> a = new ArrayList<short[]>((int) particleSizes[b]);
 			pL.add(b, a);
 		}
 		// add all the particle coordinates to the appropriate list
-		for (int z = 0; z < d; z++) {
+		for (short z = 0; z < d; z++) {
 			IJ.showStatus("Listing substructures...");
 			IJ.showProgress(z, d);
-			for (int y = 0; y < h; y++) {
+			for (short y = 0; y < h; y++) {
 				final int i = y * w;
-				for (int x = 0; x < w; x++) {
+				for (short x = 0; x < w; x++) {
 					final int p = particleLabels[z][i + x];
 					if (p > 0) { // ignore background
-						final int[] voxel = { x, y, z };
+						final short[] voxel = { x, y, z };
 						pL.get(p).add(voxel);
 					}
 				}
@@ -1497,10 +1497,10 @@ public class ParticleCounter implements PlugIn {
 	 * @param w stack width
 	 */
 	public void joinBlobs(int b, int p, int[][] particleLabels,
-			ArrayList<ArrayList<int[]>> particleLists, int w) {
-		ListIterator<int[]> iterB = particleLists.get(p).listIterator();
+			ArrayList<ArrayList<short[]>> particleLists, int w) {
+		ListIterator<short[]> iterB = particleLists.get(p).listIterator();
 		while (iterB.hasNext()) {
-			int[] voxelB = iterB.next();
+			short[] voxelB = iterB.next();
 			particleLists.get(b).add(voxelB);
 			final int iB = voxelB[1] * w + voxelB[0];
 			particleLabels[voxelB[2]][iB] = b;

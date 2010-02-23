@@ -178,7 +178,7 @@ public class Purify implements PlugIn {
 		final int b = bP;
 
 		ParticleCounter pc = new ParticleCounter();
-		ArrayList<ArrayList<int[]>> particleLists = pc.getParticleLists(particleLabels,
+		ArrayList<ArrayList<short[]>> particleLists = pc.getParticleLists(particleLabels,
 				nParts, w, h, d);
 
 		// check each face of the stack for pixels that are touching edges and
